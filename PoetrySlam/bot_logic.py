@@ -3,6 +3,15 @@ from __future__ import annotations
 import random
 from wordfreq import zipf_frequency
 
+INVALID_BOT_WORDS = [
+    "blorf",
+    "qzun",
+    "vlemp",
+    "snorpt",
+    "truzz",
+    "plimk",
+]
+
 
 def pick_bot_word(words: list[str], difficulty: str) -> tuple[str | None, bool]:
     if not words:
@@ -13,6 +22,9 @@ def pick_bot_word(words: list[str], difficulty: str) -> tuple[str | None, bool]:
         "Medium": 0.8,
         "Hard": 1.0,
     }.get(difficulty, 0.8)
+
+    if random.random() < 0.2:
+        return random.choice(INVALID_BOT_WORDS), False
 
     risk = 0.2
     scores = [(w, zipf_frequency(w, "en")) for w in words]

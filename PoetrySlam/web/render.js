@@ -32,6 +32,7 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
   let timerBaseAt = 0;
   let lastTimeLeft = 1;
   let lastRoundId = null;
+  let lastGameId = null;
   let timerContextKey = "";
   let autoSubmitKey = "";
   let latestState = null;
@@ -111,6 +112,12 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
     });
     latestState = state;
 
+    if (typeof state.game_id === "number" && state.game_id !== lastGameId) {
+      lastGameId = state.game_id;
+      promptStack = [];
+      lastPrompt = "";
+      promptStackEl.replaceChildren();
+    }
     if (typeof state.round_id === "number" && state.round_id !== lastRoundId) {
       if (lastRoundId !== null) {
         animateStackTo(state.last_actor || "player");
@@ -130,8 +137,11 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
     const prevTurn = lastTurn;
     const isPlayerTurn = state.turn === "player";
     playerCard.classList.toggle("active", state.turn === "player");
+    const outSet = new Set(state.out_players || []);
+    playerCard.classList.toggle("out", outSet.has("player"));
     botIds.forEach((id) => {
       botCards[id].classList.toggle("active", state.turn === id);
+      botCards[id].classList.toggle("out", outSet.has(id));
     });
     guessEl.disabled = !isPlayerTurn || state.paused;
     if (isPlayerTurn && lastTurn !== "player") {

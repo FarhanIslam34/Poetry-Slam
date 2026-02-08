@@ -41,16 +41,19 @@ class GameState:
     last_bot_word: str
     last_bot_actor: str
     last_word_actor: str
+    out_players: Set[str] = field(default_factory=set)
     used_words: Set[str] = field(default_factory=set)
     used_keys: Set[str] = field(default_factory=set)
     round_turns: int = 0
     round_id: int = 0
     round_rhyme_count: int = 0
+    game_id: int = 0
 
 
 class GameEngine:
     def __init__(self) -> None:
         self.bot_count = 1
+        self.game_id = 0
         self.rhyme_attempts: list[dict] = []
         self.rhyme_attempt_keys: set[tuple[str, str]] = set()
         self.state = self._new_state()
@@ -58,6 +61,7 @@ class GameEngine:
     def _new_state(self, bot_count: int | None = None) -> GameState:
         count = self._normalize_bot_count(bot_count if bot_count is not None else self.bot_count)
         self.bot_count = count
+        self.game_id += 1
         state = GameState(
             prompt=game.pick_prompt(),
             player_score=0,
@@ -75,6 +79,7 @@ class GameEngine:
             pending_bot_word="",
             pending_bot_correct=False,
             pending_bot_actor="",
+            out_players=set(),
             last_event="New game started.",
             last_actor="system",
             last_result="info",
@@ -87,6 +92,7 @@ class GameEngine:
             round_turns=0,
             round_id=0,
             round_rhyme_count=0,
+            game_id=self.game_id,
         )
         self._start_turn(state, "player")
         return state
@@ -139,6 +145,8 @@ class GameEngine:
             "round_id": state.round_id,
             "remaining_rhymes": max(0, state.round_rhyme_count - len(state.used_keys)),
             "paused": state.paused,
+            "out_players": sorted(state.out_players),
+            "game_id": state.game_id,
         }
 
     def rhyme_attempts_payload(self) -> dict:
@@ -221,19 +229,20 @@ class GameEngine:
             return
 
         if res.status == game.GuessStatus.NOT_A_RHYME:
-            self._set_event(state, "player", ["Not a rhyme"], "bad")
+            message = "Not a rhyme"
         elif res.status == game.GuessStatus.VALID_ENGLISH_MISSING_CMU:
             self._track_rhyme_attempt(state.prompt, guess)
-            self._set_event(state, "player", ["Not in rhyming dictionary"], "bad")
+            message = "Not in rhyming dictionary"
         elif res.status == game.GuessStatus.NOT_RECOGNIZED_ENGLISH:
-            self._set_event(state, "player", ["Not a valid word"], "bad")
+            message = "Not a valid word"
         elif res.status == game.GuessStatus.NOT_PLAUSIBLE_TOKEN:
-            self._set_event(state, "player", ["Not a valid word"], "bad")
+            message = "Not a valid word"
         elif res.status == game.GuessStatus.SAME_AS_PROMPT:
-            self._set_event(state, "player", ["Need a different word"], "bad")
+            message = "Need a different word"
         else:
-            self._set_event(state, "player", ["Try again"], "bad")
-
+            message = "Try again"
+        self._set_event(state, "player", [message], "bad")
+        
     def handle_bot_commit(self) -> None:
         state = self.state
         if not self._is_active_bot(state, state.turn) or not state.pending_bot_word:
@@ -276,10 +285,8 @@ class GameEngine:
             state.pending_bot_word = ""
             state.pending_bot_correct = False
             state.pending_bot_actor = ""
-            winner = self._next_turn(state.turn)
-            self._award_points(state, winner, state.round_turns)
-            self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
-            self._start_round(state, winner)
+            self._mark_out(state, state.turn)
+            self._handle_after_out(state)
             return
 
         if self._is_active_bot(state, state.turn) and state.bot_action_mono is not None and now >= state.bot_action_mono:
@@ -293,10 +300,7 @@ class GameEngine:
                 state.pending_bot_correct = False
                 state.pending_bot_actor = ""
                 state.bot_action_mono = None
-                winner = self._next_turn(state.turn)
-                self._award_points(state, winner, state.round_turns)
-                self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
-                self._start_round(state, winner)
+                self._set_event(state, state.turn, ["No rhymes left."], "bad")
                 return
 
             bot_word, bot_correct = pick_bot_word(available, difficulty)
@@ -339,6 +343,7 @@ class GameEngine:
         state.prompt = game.pick_prompt()
         state.used_words = set()
         state.used_keys = set()
+        state.out_players = set()
         state.round_turns = 0
         state.last_player_word = ""
         state.last_bot_word = ""
@@ -373,11 +378,11 @@ class GameEngine:
             state.bot4_score += points
 
     def _next_turn(self, turn: str) -> str:
-        active = self._active_turns(self.state)
+        active = self._eligible_turns(self.state)
         try:
             idx = active.index(turn)
         except ValueError:
-            return "player"
+            return active[0] if active else "player"
         return active[(idx + 1) % len(active)]
 
     def _time_left_ratio(self, state: GameState) -> float:
@@ -417,6 +422,31 @@ class GameEngine:
             return
         self.rhyme_attempt_keys.add(key)
         self.rhyme_attempts.append({"prompt": p, "guess": g})
+
+    def _eligible_turns(self, state: GameState) -> list[str]:
+        return [t for t in self._active_turns(state) if t not in state.out_players]
+
+    def _mark_out(self, state: GameState, actor: str) -> None:
+        if actor:
+            state.out_players.add(actor)
+
+    def _handle_after_out(self, state: GameState) -> None:
+        eligible = self._eligible_turns(state)
+        if not eligible:
+            winner = state.last_word_actor if state.last_word_actor != "system" else "player"
+            self._award_points(state, winner, state.round_turns)
+            self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
+            self._start_round(state, winner)
+            return
+        if len(eligible) == 1:
+            winner = eligible[0]
+            self._award_points(state, winner, state.round_turns)
+            self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
+            self._start_round(state, winner)
+            return
+        if state.turn in state.out_players:
+            state.turn = self._next_turn(state.turn)
+            self._start_turn(state, state.turn)
 
     def _pause(self, state: GameState) -> None:
         if state.paused:

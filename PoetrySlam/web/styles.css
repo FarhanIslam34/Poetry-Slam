@@ -353,6 +353,26 @@ body {
   transform: translateY(-2px);
 }
 
+.player-card.out {
+  opacity: 0.35;
+  filter: grayscale(0.2);
+}
+
+.out-badge {
+  display: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 20, 15, 0.2);
+  background: rgba(247, 241, 232, 0.9);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.player-card.out .out-badge {
+  display: inline-flex;
+}
+
 .player-card.is-hidden {
   display: none;
 }
