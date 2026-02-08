@@ -142,6 +142,9 @@ def syllable_match_bonus(prompt: str, guess: str) -> int:
             if rp1 != rp2:
                 continue
             syllables1 = sum(1 for ph in p1.split() if _VOWEL_RE.search(ph))
+            syllables2 = sum(1 for ph in p2.split() if _VOWEL_RE.search(ph))
+            if syllables2 < syllables1:
+                continue
             rhyming_syllables = sum(1 for ph in rp1.split() if _VOWEL_RE.search(ph))
             best = max(best, max(0, syllables1 - rhyming_syllables))
     return best
