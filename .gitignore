@@ -1,0 +1,5 @@
+venv/
+PoetrySlam/data/custom_rhymes.json
+__pycache__/
+*.pyc
+.DS_Store

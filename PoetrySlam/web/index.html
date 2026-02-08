@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Poetry Slam - Bot Match</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-veil"></div>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">Local Match</p>
+        <h1>Poetry Slam</h1>
+        <p class="subhead">Beat the bot before the clock runs out.</p>
+      </header>
+
+      <section class="layout">
+        <aside class="sidebar card">
+          <div class="hero-controls">
+            <div class="control inline">
+              <label for="difficulty">Bot difficulty</label>
+              <select id="difficulty">
+                <option>Easy</option>
+                <option selected>Medium</option>
+                <option>Hard</option>
+              </select>
+            </div>
+            <div class="control inline">
+              <label for="bot-count">Bots</label>
+              <input id="bot-count" type="number" min="1" max="4" value="1" />
+            </div>
+            <button id="pause-game" class="ghost">Pause</button>
+            <button id="new-game" class="ghost">New game</button>
+          </div>
+          <button id="evaluate-rhymes" class="ghost">Evaluate Rhyme Attempts</button>
+          <div class="rhyme-board">
+            <div class="rhyme-definition">
+              <p class="label">Perfect rhyme</p>
+              <p class="rhyme-text">
+                A perfect rhyme keeps the final stressed vowel and everything after it
+                in lockstep, while the opening consonants can diverge.<br />
+                Light / night, station / nation, explain / restrain.
+              </p>
+            </div>
+            <p class="label">Rhyme settings</p>
+            <label
+              class="toggle"
+              data-tooltip="Examples: bed → beds, fine → find"
+            >
+              <input id="allow-trailing-consonant-cluster" type="checkbox" />
+              <span>Allow trailing consonant cluster</span>
+            </label>
+            <div class="toggle-group">
+              <label
+                class="toggle toggle-parent"
+                data-tooltip="Examples: bat → bad, cap → cab"
+              >
+                <input id="allow-final-consonant-class-substitution" type="checkbox" />
+                <span>Allow final consonant class substitution</span>
+              </label>
+              <div class="toggle-children">
+                <label
+                  class="toggle toggle-child"
+                  data-tooltip="Examples: bat → bad, cap → cab"
+                >
+                  <input id="coda-ignore-voicing" type="checkbox" />
+                  <span>Voicing swap only</span>
+                </label>
+                <label
+                  class="toggle toggle-child"
+                  data-tooltip="Examples: back → bat, sack → sap"
+                >
+                  <input id="coda-same-manner" type="checkbox" />
+                  <span>Same manner</span>
+                </label>
+                <label
+                  class="toggle toggle-child"
+                  data-tooltip="Examples: rate → raise, coat → coach"
+                >
+                  <input id="coda-same-place" type="checkbox" />
+                  <span>Same place</span>
+                </label>
+              </div>
+            </div>
+            <label
+              class="toggle"
+              data-tooltip="Examples: late → lame, beam → bean"
+            >
+              <input id="allow-vowel-match-only" type="checkbox" />
+              <span>Allow vowel match only (ignore tail)</span>
+            </label>
+            <div class="toggle-group">
+              <label
+                class="toggle toggle-parent"
+                data-tooltip="Examples: beat → bit, pit → pet"
+              >
+                <input id="allow-near-vowel-substitution" type="checkbox" />
+                <span>Allow near-vowel substitutions</span>
+              </label>
+              <div class="toggle-children">
+                <label
+                  class="toggle toggle-child"
+                  data-tooltip="Examples: beat → bit, full → fool"
+                >
+                  <input id="near-vowel-tense-lax-pairs" type="checkbox" />
+                  <span>Tense/lax vowel pairs</span>
+                </label>
+                <label
+                  class="toggle toggle-child"
+                  data-tooltip="Examples: pit → pet, rick → rack"
+                >
+                  <input id="near-vowel-short-front-bucket" type="checkbox" />
+                  <span>IH/EH/AE bucket</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="card arena">
+        <div class="players-row">
+          <div id="player-card" class="player-card player-one">
+            <div id="player-toast" class="turn-toast"></div>
+            <div class="avatar player">YOU</div>
+            <div class="player-meta">
+              <p class="player-score">0</p>
+            </div>
+          </div>
+
+          <div id="bot1-card" class="player-card player-two">
+            <div id="bot-toast" class="turn-toast"></div>
+            <div class="avatar bot1">BOT A</div>
+            <div class="player-meta">
+              <p class="player-score">0</p>
+            </div>
+          </div>
+
+          <div id="bot2-card" class="player-card player-three">
+            <div id="bot2-toast" class="turn-toast"></div>
+            <div class="avatar bot2">BOT B</div>
+            <div class="player-meta">
+              <p class="player-score">0</p>
+            </div>
+          </div>
+
+          <div id="bot3-card" class="player-card player-four">
+            <div id="bot3-toast" class="turn-toast"></div>
+            <div class="avatar bot3">BOT C</div>
+            <div class="player-meta">
+              <p class="player-score">0</p>
+            </div>
+          </div>
+
+          <div id="bot4-card" class="player-card player-five">
+            <div id="bot4-toast" class="turn-toast"></div>
+            <div class="avatar bot4">BOT D</div>
+            <div class="player-meta">
+              <p class="player-score">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="prompt-wrap" aria-live="polite">
+          <div class="timer-row">
+            <div class="timer" id="timer">10.0</div>
+            <div class="remaining" id="remaining">0 remaining</div>
+          </div>
+          <div class="word-stack">
+            <input id="guess" class="guess-input" type="text" autocomplete="off" />
+            <div id="prompt-stack" class="prompt-stack"></div>
+          </div>
+        </div>
+        </section>
+      </section>
+
+
+    </main>
+
+    <div id="rhyme-modal" class="modal" aria-hidden="true">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2>Evaluate Rhyme Attempts</h2>
+          <button id="close-rhyme-modal" class="ghost">Close</button>
+        </div>
+        <p class="modal-subhead">
+          These words are valid English but missing from the CMU dictionary.
+          Confirm whether they rhyme with the prompt.
+        </p>
+        <div id="rhyme-attempts" class="modal-list"></div>
+        <p id="rhyme-empty" class="modal-empty">No pending attempts.</p>
+      </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
