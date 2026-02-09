@@ -144,13 +144,14 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       botCards[id].classList.toggle("out", outSet.has(id));
     });
     guessEl.disabled = !isPlayerTurn || state.paused;
-    if (isPlayerTurn && lastTurn !== "player") {
+    if (state.turn !== lastTurn) {
+      if (botTypingTimer) {
+        clearInterval(botTypingTimer);
+        botTypingTimer = null;
+      }
       guessEl.value = "";
-    }
-    if (!isPlayerTurn && state.turn && state.turn !== lastTurn) {
       lastBotWord = "";
       lastBotActor = "";
-      guessEl.value = "";
     }
     lastTurn = state.turn || "";
     updateInputState();
@@ -254,7 +255,8 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
 
     const botWord = state.bot_word || "";
     const botActor = state.bot_actor || "";
-    if (botWord !== lastBotWord || botActor !== lastBotActor) {
+    const shouldAnimateBot = state.turn !== "player" && state.bot_pending;
+    if (shouldAnimateBot && (botWord !== lastBotWord || botActor !== lastBotActor)) {
       lastBotWord = botWord;
       lastBotActor = botActor;
       if (botTypingTimer) {
@@ -287,6 +289,9 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
           }
         }, step);
       }
+    } else if (!shouldAnimateBot && botTypingTimer) {
+      clearInterval(botTypingTimer);
+      botTypingTimer = null;
     }
 
     if (currentPrompt && currentPrompt !== lastPrompt) {

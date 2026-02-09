@@ -94,6 +94,8 @@ class GameEngine:
             round_rhyme_count=0,
             game_id=self.game_id,
         )
+        state.used_words.add(state.prompt.lower())
+        state.used_keys.add(self._word_key(state.prompt))
         self._start_turn(state, "player")
         return state
 
@@ -343,6 +345,8 @@ class GameEngine:
         state.prompt = game.pick_prompt()
         state.used_words = set()
         state.used_keys = set()
+        state.used_words.add(state.prompt.lower())
+        state.used_keys.add(self._word_key(state.prompt))
         state.out_players = set()
         state.round_turns = 0
         state.last_player_word = ""
