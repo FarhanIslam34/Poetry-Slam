@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Set
+from typing import Dict, List, Set
 
 import poetry_slam as game
 from bot_logic import pick_bot_word
@@ -11,20 +11,23 @@ from bot_logic import pick_bot_word
 TURN_SECONDS = 10
 BOT_ACTION_MIN = 0.0
 BOT_ACTION_MAX = 0.0
+MAX_PLAYERS = 5
 
-TURN_ORDER = ["player", "bot1", "bot2", "bot3", "bot4"]
-BOT_IDS = [t for t in TURN_ORDER if t != "player"]
+
+@dataclass
+class PlayerInfo:
+    player_id: str
+    kind: str
+    label: str
+    avatar_class: str
+    score: int = 0
 
 
 @dataclass
 class GameState:
     prompt: str
-    player_score: int
-    bot1_score: int
-    bot2_score: int
-    bot3_score: int
-    bot4_score: int
-    bot_count: int
+    players: Dict[str, PlayerInfo]
+    turn_order: List[str]
     turn: str
     deadline_mono: float
     bot_action_mono: float | None
@@ -52,25 +55,43 @@ class GameState:
 
 class GameEngine:
     def __init__(self) -> None:
-        self.bot_count = 1
+        self.max_players = MAX_PLAYERS
         self.game_id = 0
         self.rhyme_attempts: list[dict] = []
         self.rhyme_attempt_keys: set[tuple[str, str]] = set()
         self.state = self._new_state()
 
-    def _new_state(self, bot_count: int | None = None) -> GameState:
-        count = self._normalize_bot_count(bot_count if bot_count is not None else self.bot_count)
-        self.bot_count = count
+    def setup_room(self, bot_count: int) -> None:
+        self.state = self._new_state()
+        for _ in range(self._normalize_bot_count(bot_count)):
+            self.add_player(kind="bot")
+
+    def set_bot_count(self, bot_count: int) -> None:
+        state = self.state
+        human_count = len([p for p in state.players.values() if p.kind == "human"])
+        target = min(self._normalize_bot_count(bot_count), self.max_players - human_count)
+        bots = [pid for pid in state.turn_order if pid.startswith("bot")]
+        if len(bots) == target:
+            return
+        if len(bots) < target:
+            for _ in range(target - len(bots)):
+                self.add_player(kind="bot")
+            return
+        to_remove = bots[target:]
+        for pid in to_remove:
+            state.turn_order.remove(pid)
+            state.players.pop(pid, None)
+            state.out_players.discard(pid)
+        if state.turn in to_remove and state.turn_order:
+            self._start_turn(state, state.turn_order[0])
+
+    def _new_state(self) -> GameState:
         self.game_id += 1
         state = GameState(
             prompt=game.pick_prompt(),
-            player_score=0,
-            bot1_score=0,
-            bot2_score=0,
-            bot3_score=0,
-            bot4_score=0,
-            bot_count=count,
-            turn="player",
+            players={},
+            turn_order=[],
+            turn="",
             deadline_mono=0.0,
             bot_action_mono=None,
             paused=False,
@@ -79,7 +100,6 @@ class GameEngine:
             pending_bot_word="",
             pending_bot_correct=False,
             pending_bot_actor="",
-            out_players=set(),
             last_event="New game started.",
             last_actor="system",
             last_result="info",
@@ -87,6 +107,7 @@ class GameEngine:
             last_bot_word="",
             last_bot_actor="",
             last_word_actor="system",
+            out_players=set(),
             used_words=set(),
             used_keys=set(),
             round_turns=0,
@@ -96,46 +117,67 @@ class GameEngine:
         )
         state.used_words.add(state.prompt.lower())
         state.used_keys.add(self._word_key(state.prompt))
-        self._start_turn(state, "player")
         return state
 
-    def new_game(self, bot_count: int | None = None) -> None:
-        self.state = self._new_state(bot_count)
-
-    def set_bot_count(self, bot_count: int) -> None:
+    def new_game(self) -> None:
         state = self.state
-        count = self._normalize_bot_count(bot_count)
-        self.bot_count = count
-        if state.bot_count == count:
-            return
-        state.bot_count = count
-        active_turns = self._active_turns(state)
-        if state.turn not in active_turns:
-            if state.paused:
-                state.turn = "player"
-                state.paused_time_left = TURN_SECONDS
-                state.paused_bot_delay = None
-            else:
-                self._start_turn(state, "player")
-        if state.pending_bot_actor and state.pending_bot_actor not in active_turns:
-            state.pending_bot_word = ""
-            state.pending_bot_correct = False
-            state.pending_bot_actor = ""
-            state.last_bot_word = ""
-            state.last_bot_actor = ""
+        existing = [(pid, info.kind, info.label, info.avatar_class) for pid, info in state.players.items()]
+        order = list(state.turn_order)
+        self.state = self._new_state()
+        for pid in order:
+            info = next((p for p in existing if p[0] == pid), None)
+            if info:
+                self._add_existing_player(*info)
+        if self.state.turn_order:
+            self._start_turn(self.state, self.state.turn_order[0])
 
-    def payload(self) -> dict:
+    def bot_count(self) -> int:
+        return len([p for p in self.state.players.values() if p.kind == "bot"])
+
+    def player_count(self) -> int:
+        return len(self.state.players)
+
+    def add_player(self, kind: str) -> str:
         state = self.state
-        return {
+        if len(state.turn_order) >= self.max_players:
+            raise ValueError("Room is full")
+        if kind == "bot":
+            bot_index = 1 + len([p for p in state.players.values() if p.kind == "bot"])
+            player_id = f"bot{bot_index}"
+            label = f"BOT {chr(64 + bot_index)}"
+            avatar_class = player_id
+        else:
+            human_index = 1 + len([p for p in state.players.values() if p.kind == "human"])
+            player_id = f"p{human_index}"
+            label = f"PLAYER {human_index}"
+            avatar_class = "player"
+        state.players[player_id] = PlayerInfo(
+            player_id=player_id,
+            kind=kind,
+            label=label,
+            avatar_class=avatar_class,
+        )
+        state.turn_order.append(player_id)
+        if not state.turn:
+            self._start_turn(state, player_id)
+        return player_id
+
+    def _add_existing_player(self, player_id: str, kind: str, label: str, avatar_class: str) -> None:
+        state = self.state
+        state.players[player_id] = PlayerInfo(
+            player_id=player_id,
+            kind=kind,
+            label=label,
+            avatar_class=avatar_class,
+        )
+        state.turn_order.append(player_id)
+
+    def payload(self, self_id: str | None = None) -> dict:
+        state = self.state
+        payload = {
             "prompt": state.prompt,
             "turn": state.turn,
             "time_left": self._time_left_ratio(state),
-            "player_score": state.player_score,
-            "bot1_score": state.bot1_score,
-            "bot2_score": state.bot2_score,
-            "bot3_score": state.bot3_score,
-            "bot4_score": state.bot4_score,
-            "bot_count": state.bot_count,
             "last_event": state.last_event,
             "last_actor": state.last_actor,
             "last_result": state.last_result,
@@ -149,7 +191,22 @@ class GameEngine:
             "paused": state.paused,
             "out_players": sorted(state.out_players),
             "game_id": state.game_id,
+            "rhyme_part_display": game.rhyming_part_display(state.prompt),
+            "self_id": self_id,
         }
+        payload["players"] = [
+            {
+                "id": pid,
+                "score": state.players[pid].score,
+                "out": pid in state.out_players,
+                "label": state.players[pid].label,
+                "card_class": self._player_card_class(idx),
+                "avatar_class": state.players[pid].avatar_class,
+                "is_self": pid == self_id,
+            }
+            for idx, pid in enumerate(state.turn_order)
+        ]
+        return payload
 
     def rhyme_attempts_payload(self) -> dict:
         return {"attempts": list(self.rhyme_attempts)}
@@ -166,7 +223,7 @@ class GameEngine:
         if accepted:
             game.add_custom_rhyme(guess, prompt)
 
-    def handle_guess(self, data: dict) -> None:
+    def handle_guess(self, data: dict, *, actor: str) -> None:
         state = self.state
         guess = (data.get("guess") or "").strip()
         difficulty = data.get("difficulty") or "Medium"
@@ -184,19 +241,31 @@ class GameEngine:
             near_vowel_tense_lax_pairs=bool(data.get("near_vowel_tense_lax_pairs")),
             near_vowel_short_front_bucket=bool(data.get("near_vowel_short_front_bucket")),
         )
+        slant_bonus_enabled = bool(data.get("bonus_slant_rhyme"))
+        any_slant_enabled = any(
+            [
+                settings.allow_trailing_consonant_cluster,
+                settings.allow_final_consonant_class_substitution,
+                settings.coda_ignore_voicing,
+                settings.coda_same_manner,
+                settings.coda_same_place,
+                settings.allow_vowel_match_only,
+                settings.allow_near_vowel_substitution,
+                settings.near_vowel_tense_lax_pairs,
+                settings.near_vowel_short_front_bucket,
+            ]
+        )
 
         self.process_timers(difficulty)
-        if state.paused:
-            return
-        if state.turn != "player":
+        if state.paused or state.turn != actor:
             return
 
         if not guess:
-            self._set_event(state, "player", ["Please enter a word."], "bad")
+            self._set_event(state, actor, ["Please enter a word."], "bad")
             return
 
         if guess.strip().lower() == "/suicide":
-            winner = self._next_turn("player")
+            winner = self._next_turn(state.turn)
             self._award_points(state, winner, state.round_turns)
             self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
             self._start_round(state, winner)
@@ -205,28 +274,30 @@ class GameEngine:
         normalized = guess.lower()
         key = self._word_key(normalized)
         if key in state.used_keys:
-            self._set_event(state, "player", ["Already used"], "bad")
+            self._set_event(state, actor, ["Already used"], "bad")
             return
 
         res = game.judge_guess(state.prompt, guess, settings=settings)
         state.last_player_word = guess
         if res.status == game.GuessStatus.QUIT_COMMAND:
-            self._set_event(state, "player", ["You quit the game. Starting a new match."], "info")
+            self._set_event(state, actor, ["You quit the game. Starting a new match."], "info")
             self.new_game()
             return
 
         if res.status == game.GuessStatus.CORRECT:
             bonus = game.syllable_match_bonus(state.prompt, guess)
+            if slant_bonus_enabled and any_slant_enabled and not game.words_rhyme(state.prompt, guess):
+                bonus += 1
             if bonus:
-                self._award_points(state, "player", bonus)
-                self._set_event(state, "player", [f"Correct! +{bonus} bonus"], "good")
+                self._award_points(state, actor, bonus)
+                self._set_event(state, actor, [f"Correct! +{bonus} bonus"], "good")
             else:
-                self._set_event(state, "player", ["Correct!"], "good")
+                self._set_event(state, actor, ["Correct!"], "good")
             state.used_words.add(normalized)
             state.used_keys.add(key)
             state.round_turns += 1
             state.prompt = normalized
-            state.last_word_actor = "player"
+            state.last_word_actor = actor
             self._advance_turn(state)
             return
 
@@ -243,21 +314,20 @@ class GameEngine:
             message = "Need a different word"
         else:
             message = "Try again"
-        self._set_event(state, "player", [message], "bad")
-        
+        self._set_event(state, actor, [message], "bad")
+
     def handle_bot_commit(self) -> None:
         state = self.state
-        if not self._is_active_bot(state, state.turn) or not state.pending_bot_word:
+        if not self._is_bot(state.turn) or not state.pending_bot_word:
             return
 
         if state.pending_bot_correct:
             bonus = game.syllable_match_bonus(state.prompt, state.pending_bot_word)
-            if bonus:
-                self._award_points(state, state.pending_bot_actor, bonus)
             state.used_words.add(state.pending_bot_word.lower())
             state.used_keys.add(self._word_key(state.pending_bot_word))
             state.round_turns += 1
             if bonus:
+                self._award_points(state, state.pending_bot_actor, bonus)
                 self._set_event(state, state.pending_bot_actor, [f"Correct! +{bonus} bonus"], "good")
             else:
                 self._set_event(state, state.pending_bot_actor, ["Correct!"], "good")
@@ -291,7 +361,7 @@ class GameEngine:
             self._handle_after_out(state)
             return
 
-        if self._is_active_bot(state, state.turn) and state.bot_action_mono is not None and now >= state.bot_action_mono:
+        if self._is_bot(state.turn) and state.bot_action_mono is not None and now >= state.bot_action_mono:
             available = [
                 w
                 for w in game.accepted_words(state.prompt)
@@ -329,7 +399,7 @@ class GameEngine:
         state.turn = turn
         state.deadline_mono = now + TURN_SECONDS
         state.bot_action_mono = None
-        if self._is_active_bot(state, turn):
+        if self._is_bot(turn):
             delay = random.uniform(BOT_ACTION_MIN, BOT_ACTION_MAX)
             state.bot_action_mono = min(state.deadline_mono - 0.2, now + delay)
             state.last_bot_word = ""
@@ -370,24 +440,22 @@ class GameEngine:
     def _award_points(self, state: GameState, actor: str, points: int) -> None:
         if points <= 0:
             return
-        if actor == "player":
-            state.player_score += points
-        elif actor == "bot1":
-            state.bot1_score += points
-        elif actor == "bot2":
-            state.bot2_score += points
-        elif actor == "bot3":
-            state.bot3_score += points
-        elif actor == "bot4":
-            state.bot4_score += points
+        if actor in state.players:
+            state.players[actor].score += points
 
     def _next_turn(self, turn: str) -> str:
-        active = self._eligible_turns(self.state)
+        active = self._active_turns(self.state)
+        if not active:
+            return ""
         try:
-            idx = active.index(turn)
+            start_idx = active.index(turn)
         except ValueError:
-            return active[0] if active else "player"
-        return active[(idx + 1) % len(active)]
+            start_idx = -1
+        for offset in range(1, len(active) + 1):
+            cand = active[(start_idx + offset) % len(active)]
+            if cand not in self.state.out_players:
+                return cand
+        return active[0]
 
     def _time_left_ratio(self, state: GameState) -> float:
         if state.paused:
@@ -404,17 +472,17 @@ class GameEngine:
         return w
 
     def _active_turns(self, state: GameState) -> list[str]:
-        return ["player"] + [f"bot{i}" for i in range(1, state.bot_count + 1)]
+        return list(state.turn_order)
 
-    def _is_active_bot(self, state: GameState, turn: str) -> bool:
-        return turn in self._active_turns(state) and turn != "player"
+    def _is_bot(self, player_id: str) -> bool:
+        return player_id in self.state.players and self.state.players[player_id].kind == "bot"
 
     def _normalize_bot_count(self, value: int | str) -> int:
         try:
             count = int(value)
         except (TypeError, ValueError):
             count = 1
-        return max(1, min(4, count))
+        return max(0, min(self.max_players, count))
 
     def _track_rhyme_attempt(self, prompt: str, guess: str) -> None:
         p = (prompt or "").strip().lower()
@@ -437,7 +505,7 @@ class GameEngine:
     def _handle_after_out(self, state: GameState) -> None:
         eligible = self._eligible_turns(state)
         if not eligible:
-            winner = state.last_word_actor if state.last_word_actor != "system" else "player"
+            winner = state.last_word_actor if state.last_word_actor != "system" else state.turn
             self._award_points(state, winner, state.round_turns)
             self._set_event(state, winner, [f"Round over. +{state.round_turns} points"], "good")
             self._start_round(state, winner)
@@ -449,8 +517,7 @@ class GameEngine:
             self._start_round(state, winner)
             return
         if state.turn in state.out_players:
-            state.turn = self._next_turn(state.turn)
-            self._start_turn(state, state.turn)
+            self._start_turn(state, self._next_turn(state.turn))
 
     def _pause(self, state: GameState) -> None:
         if state.paused:
@@ -476,3 +543,7 @@ class GameEngine:
             state.bot_action_mono = None
         state.paused_time_left = 0.0
         state.paused_bot_delay = None
+
+    def _player_card_class(self, idx: int) -> str:
+        classes = ["player-one", "player-two", "player-three", "player-four", "player-five"]
+        return classes[idx] if idx < len(classes) else classes[-1]

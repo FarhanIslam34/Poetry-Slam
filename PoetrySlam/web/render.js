@@ -1,17 +1,13 @@
 const TURN_MS = 10000;
 const MAX_STACK = 16;
 
-export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) {
+export function createRenderer({ elements, onBotCommit, onAutoSubmit }) {
   const {
     guessEl,
-    playerCard,
-    botCards,
-    playerScoreEl,
-    botScoreEls,
-    playerToast,
-    botToasts,
+    playersRowEl,
     timerEl,
     remainingEl,
+    rhymePartEl,
     promptStackEl,
     pauseBtn,
     settingEls,
@@ -19,6 +15,13 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
     evaluateBtn,
   } = elements;
 
+  const cardEls = {};
+  const scoreEls = {};
+  const toastEls = {};
+  let activeActorClasses = [];
+  let playerClassById = {};
+  let playerColorById = {};
+  let lastPlayerIds = [];
   let lastEventKey = "";
   let lastTurn = "";
   let lastBotWord = "";
@@ -37,21 +40,81 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
   let autoSubmitKey = "";
   let latestState = null;
 
+  function buildPlayerCards(players) {
+    if (!playersRowEl) {
+      return;
+    }
+    const ids = players.map((p) => p.id);
+    if (ids.length === lastPlayerIds.length && ids.every((id, i) => id === lastPlayerIds[i])) {
+      return;
+    }
+    lastPlayerIds = ids;
+    playersRowEl.replaceChildren();
+    Object.keys(cardEls).forEach((key) => delete cardEls[key]);
+    Object.keys(scoreEls).forEach((key) => delete scoreEls[key]);
+    Object.keys(toastEls).forEach((key) => delete toastEls[key]);
+
+    const cardClasses = [
+      "player-one",
+      "player-two",
+      "player-three",
+      "player-four",
+      "player-five",
+    ];
+    let botIndex = 0;
+    players.forEach((player, idx) => {
+      const card = document.createElement("div");
+      const cardClass = cardClasses[idx] || "player-one";
+      card.className = `player-card ${cardClass}`;
+      card.dataset.playerId = player.id;
+
+      const toast = document.createElement("div");
+      toast.className = "turn-toast";
+      card.appendChild(toast);
+      toastEls[player.id] = toast;
+
+      const avatar = document.createElement("div");
+      avatar.className = `avatar ${player.avatar_class || player.id}`;
+      avatar.textContent = player.is_self
+        ? "YOU"
+        : player.label || (player.id === "player" ? "YOU" : `BOT ${botIndex + 1}`);
+      if (player.id !== "player") {
+        botIndex += 1;
+      }
+      card.appendChild(avatar);
+
+      const outBadge = document.createElement("div");
+      outBadge.className = "out-badge";
+      outBadge.textContent = "OUT";
+      card.appendChild(outBadge);
+
+      const meta = document.createElement("div");
+      meta.className = "player-meta";
+      const score = document.createElement("p");
+      score.className = "player-score";
+      score.textContent = "0";
+      meta.appendChild(score);
+      card.appendChild(meta);
+
+      const colorClass = player.card_class || cardClass;
+      card.classList.add(colorClass);
+
+      playersRowEl.appendChild(card);
+      cardEls[player.id] = card;
+      scoreEls[player.id] = score;
+      playerColorById[player.id] = colorClass;
+    });
+  }
+
   function updateInputState() {
     const hasText = guessEl.value.length > 0;
     guessEl.classList.toggle("has-text", hasText);
-    guessEl.classList.toggle("live", latestState?.turn === "player" && !latestState?.paused);
+    const isSelfTurn = latestState?.self_id && latestState?.turn === latestState?.self_id;
+    guessEl.classList.toggle("live", isSelfTurn && !latestState?.paused);
   }
 
   function flashScore(actor) {
-    const map = {
-      player: playerScoreEl,
-      bot1: botScoreEls.bot1,
-      bot2: botScoreEls.bot2,
-      bot3: botScoreEls.bot3,
-      bot4: botScoreEls.bot4,
-    };
-    const el = map[actor];
+    const el = scoreEls[actor];
     if (!el) {
       return;
     }
@@ -66,7 +129,10 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       return;
     }
     const sourceRect = promptStackEl.getBoundingClientRect();
-    const targetEl = botIds.includes(winner) ? botCards[winner] : playerCard;
+    const targetEl = cardEls[winner] || cardEls.player;
+    if (!targetEl) {
+      return;
+    }
     const targetRect = targetEl.getBoundingClientRect();
 
     const fly = document.createElement("div");
@@ -106,11 +172,20 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
 
   function renderState(state) {
     const currentPrompt = state.prompt || "";
-    playerScoreEl.textContent = state.player_score ?? "0";
-    botIds.forEach((id) => {
-      botScoreEls[id].textContent = state[`${id}_score`] ?? "0";
-    });
     latestState = state;
+    const players = Array.isArray(state.players) ? state.players : [];
+    buildPlayerCards(players);
+    playerClassById = Object.fromEntries(
+      players.map((p) => [p.id, p.card_class || p.id])
+    );
+    activeActorClasses = players.map((p) => p.card_class || p.id).filter(Boolean);
+
+    players.forEach((p) => {
+      const el = scoreEls[p.id];
+      if (el) {
+        el.textContent = p.score ?? "0";
+      }
+    });
 
     if (typeof state.game_id === "number" && state.game_id !== lastGameId) {
       lastGameId = state.game_id;
@@ -133,15 +208,20 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
           ? "50+ remaining"
           : `${state.remaining_rhymes} remaining`;
     }
+    if (rhymePartEl) {
+      const display = state.rhyme_part_display || "";
+      rhymePartEl.innerHTML = display ? `Rhyme: ${display}` : "";
+    }
 
     const prevTurn = lastTurn;
-    const isPlayerTurn = state.turn === "player";
-    playerCard.classList.toggle("active", state.turn === "player");
-    const outSet = new Set(state.out_players || []);
-    playerCard.classList.toggle("out", outSet.has("player"));
-    botIds.forEach((id) => {
-      botCards[id].classList.toggle("active", state.turn === id);
-      botCards[id].classList.toggle("out", outSet.has(id));
+    const isPlayerTurn = state.self_id && state.turn === state.self_id;
+    const outSet = new Set(players.filter((p) => p.out).map((p) => p.id));
+    Object.entries(cardEls).forEach(([id, el]) => {
+      if (!el) {
+        return;
+      }
+      el.classList.toggle("active", state.turn === id);
+      el.classList.toggle("out", outSet.has(id));
     });
     guessEl.disabled = !isPlayerTurn || state.paused;
     if (state.turn !== lastTurn) {
@@ -152,6 +232,7 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       guessEl.value = "";
       lastBotWord = "";
       lastBotActor = "";
+      guessEl.style.removeProperty("--player-color");
     }
     lastTurn = state.turn || "";
     updateInputState();
@@ -179,10 +260,12 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       botCountEl.disabled = !state.paused;
     }
 
-    const botCount = typeof state.bot_count === "number" ? state.bot_count : botIds.length;
-    botIds.forEach((id, index) => {
-      const isActive = index < botCount;
-      botCards[id].classList.toggle("is-hidden", !isActive);
+    const activeIds = new Set(players.map((p) => p.id));
+    Object.entries(cardEls).forEach(([id, el]) => {
+      if (!el || id === "player") {
+        return;
+      }
+      el.classList.toggle("is-hidden", !activeIds.has(id));
     });
 
     const timeLeft = typeof state.time_left === "number" ? state.time_left : 1;
@@ -211,7 +294,8 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
         if (
           remaining <= 150 &&
           latestState &&
-          latestState.turn === "player" &&
+          latestState.self_id &&
+          latestState.turn === latestState.self_id &&
           !latestState.paused &&
           guessEl.value.trim() &&
           autoSubmitKey !== timerContextKey
@@ -234,9 +318,8 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
     const eventKey = `${actor}:${message}`;
     if (message && eventKey !== lastEventKey) {
       lastEventKey = eventKey;
-      const toastMap = { player: playerToast, ...botToasts };
-      const target = toastMap[actor] || playerToast;
-      Object.values(toastMap).forEach((toast) => {
+      const target = toastEls[actor] || toastEls.player;
+      Object.values(toastEls).forEach((toast) => {
         if (toast !== target) {
           toast.classList.remove("show");
           toast.textContent = "";
@@ -255,7 +338,7 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
 
     const botWord = state.bot_word || "";
     const botActor = state.bot_actor || "";
-    const shouldAnimateBot = state.turn !== "player" && state.bot_pending;
+    const shouldAnimateBot = state.turn !== state.self_id && state.bot_pending;
     if (shouldAnimateBot && (botWord !== lastBotWord || botActor !== lastBotActor)) {
       lastBotWord = botWord;
       lastBotActor = botActor;
@@ -265,8 +348,12 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       }
       if (botWord) {
         guessEl.value = "";
-        guessEl.classList.remove("player", ...botIds);
-        guessEl.classList.add(botActor || "bot1");
+        guessEl.classList.remove("player", ...activeActorClasses);
+        const botClass = playerColorById[botActor] || botActor;
+        if (botClass) {
+          guessEl.classList.add(botClass);
+          setInputColor(botClass);
+        }
         updateInputState();
         let idx = 0;
         const step = Math.max(20, Math.floor(2000 / Math.max(1, botWord.length)));
@@ -296,9 +383,7 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
 
     if (currentPrompt && currentPrompt !== lastPrompt) {
       lastPrompt = currentPrompt;
-      const actorClass = ["player", ...botIds].includes(state.last_word_actor)
-        ? state.last_word_actor
-        : "";
+      const actorClass = playerColorById[state.last_word_actor] || "";
       promptStack = [
         { word: currentPrompt.toUpperCase(), actor: actorClass },
         ...promptStack,
@@ -306,22 +391,56 @@ export function createRenderer({ elements, botIds, onBotCommit, onAutoSubmit }) 
       promptStackEl.replaceChildren();
       promptStack.forEach((entry, idx) => {
         const line = document.createElement("div");
-        const actorTag = entry.actor ? ` actor-${entry.actor}` : "";
+        const actorTag = entry.actor ? " actor" : "";
         line.className = idx === 0 ? `prompt-line animate${actorTag}` : `prompt-line${actorTag}`;
         line.textContent = entry.word;
+        if (entry.actor) {
+          setElementColor(line, entry.actor);
+        }
         promptStackEl.appendChild(line);
       });
     }
 
-    if (state.turn === "player") {
-      guessEl.classList.remove(...botIds);
-      guessEl.classList.add("player");
+    if (state.turn === state.self_id) {
+      guessEl.classList.remove(...activeActorClasses);
+      const selfClass = playerColorById[state.self_id] || "player-one";
+      guessEl.classList.add(selfClass);
+      setInputColor(selfClass);
       updateInputState();
     } else if (!botWord) {
-      guessEl.classList.remove("player", ...botIds);
-      guessEl.classList.add(state.turn || "bot1");
+      guessEl.classList.remove("player", ...activeActorClasses);
+      const turnClass = playerColorById[state.turn] || state.turn;
+      if (turnClass) {
+        guessEl.classList.add(turnClass);
+        setInputColor(turnClass);
+      }
       updateInputState();
     }
+  }
+
+  function setInputColor(colorClass) {
+    if (!colorClass) {
+      guessEl.style.removeProperty("--player-color");
+      return;
+    }
+    guessEl.style.setProperty("--player-color", colorFromClass(colorClass));
+  }
+
+  function setElementColor(el, colorClass) {
+    if (!colorClass) {
+      el.style.removeProperty("--player-color");
+      return;
+    }
+    el.style.setProperty("--player-color", colorFromClass(colorClass));
+  }
+
+  function colorFromClass(colorClass) {
+    if (colorClass === "player-one") return "var(--p1)";
+    if (colorClass === "player-two") return "var(--p2)";
+    if (colorClass === "player-three") return "var(--p3)";
+    if (colorClass === "player-four") return "var(--p4)";
+    if (colorClass === "player-five") return "var(--p5)";
+    return "var(--accent)";
   }
 
   return { renderState, updateInputState };

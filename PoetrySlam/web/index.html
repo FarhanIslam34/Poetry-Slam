@@ -32,6 +32,18 @@
             <button id="pause-game" class="ghost">Pause</button>
             <button id="new-game" class="ghost">New game</button>
           </div>
+          <div class="room-panel">
+            <p class="label">Rooms</p>
+            <p class="room-current">Current room: <span id="current-room">—</span></p>
+            <div class="room-actions">
+              <button id="create-room" class="ghost">Create room</button>
+              <div class="room-join">
+                <input id="join-room-id" type="text" placeholder="Room ID" />
+                <button id="join-room" class="ghost">Join</button>
+              </div>
+            </div>
+            <div id="rooms-list" class="rooms-list"></div>
+          </div>
           <button id="evaluate-rhymes" class="ghost">Evaluate Rhyme Attempts</button>
           <div class="rhyme-board">
             <div class="rhyme-definition">
@@ -42,6 +54,13 @@
                 Light / night, station / nation, explain / restrain.
               </p>
             </div>
+            <label
+              class="toggle"
+              data-tooltip="Adds +1 when a slant rhyme is accepted"
+            >
+              <input id="slant-bonus" type="checkbox" />
+              <span>Bonus points for slant rhymes</span>
+            </label>
             <p class="label">Rhyme settings</p>
             <label
               class="toggle"
@@ -118,57 +137,13 @@
         </aside>
 
         <section class="card arena">
-        <div class="players-row">
-          <div id="player-card" class="player-card player-one">
-            <div id="player-toast" class="turn-toast"></div>
-            <div class="avatar player">YOU</div>
-            <div class="out-badge">OUT</div>
-            <div class="player-meta">
-              <p class="player-score">0</p>
-            </div>
-          </div>
-
-          <div id="bot1-card" class="player-card player-two">
-            <div id="bot-toast" class="turn-toast"></div>
-            <div class="avatar bot1">BOT A</div>
-            <div class="out-badge">OUT</div>
-            <div class="player-meta">
-              <p class="player-score">0</p>
-            </div>
-          </div>
-
-          <div id="bot2-card" class="player-card player-three">
-            <div id="bot2-toast" class="turn-toast"></div>
-            <div class="avatar bot2">BOT B</div>
-            <div class="out-badge">OUT</div>
-            <div class="player-meta">
-              <p class="player-score">0</p>
-            </div>
-          </div>
-
-          <div id="bot3-card" class="player-card player-four">
-            <div id="bot3-toast" class="turn-toast"></div>
-            <div class="avatar bot3">BOT C</div>
-            <div class="out-badge">OUT</div>
-            <div class="player-meta">
-              <p class="player-score">0</p>
-            </div>
-          </div>
-
-          <div id="bot4-card" class="player-card player-five">
-            <div id="bot4-toast" class="turn-toast"></div>
-            <div class="avatar bot4">BOT D</div>
-            <div class="out-badge">OUT</div>
-            <div class="player-meta">
-              <p class="player-score">0</p>
-            </div>
-          </div>
-        </div>
+        <div id="players-row" class="players-row"></div>
 
         <div class="prompt-wrap" aria-live="polite">
           <div class="timer-row">
             <div class="timer" id="timer">10.0</div>
             <div class="remaining" id="remaining">0 remaining</div>
+            <div class="rhyme-part" id="rhyme-part"></div>
           </div>
           <div class="word-stack">
             <input id="guess" class="guess-input" type="text" autocomplete="off" />

@@ -4,12 +4,8 @@ import random
 from wordfreq import zipf_frequency
 
 INVALID_BOT_WORDS = [
-    "blorf",
-    "qzun",
-    "vlemp",
-    "snorpt",
-    "truzz",
-    "plimk",
+    "UHHHHHHHHH",
+    "UMMMMMMMM",
 ]
 
 

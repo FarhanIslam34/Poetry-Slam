@@ -74,6 +74,20 @@ def rhyme_parts(word: str) -> set[str]:
     return custom_rhyme_parts(word)
 
 
+def rhyming_part_display(word: str) -> str:
+    parts = sorted(rhyme_parts(word))
+    if not parts:
+        return ""
+    tokens = []
+    for phone in parts[0].split():
+        base = _VOWEL_RE.sub("", phone)
+        if phone.endswith("1") or phone.endswith("2"):
+            tokens.append(f"<strong>{base}</strong>")
+        else:
+            tokens.append(base)
+    return " ".join(tokens)
+
+
 def _load_custom_rhymes() -> dict:
     if not _CUSTOM_RHYME_PATH.exists():
         return {"version": 1, "words": {}}
