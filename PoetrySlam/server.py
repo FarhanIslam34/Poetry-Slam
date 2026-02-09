@@ -4,9 +4,12 @@ import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
+import sys
+from pathlib import Path
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+sys.path.insert(0, str(Path(__file__).parent))
 from game_manager import GameManager
 
 WEB_DIR = Path(__file__).parent / "web"
