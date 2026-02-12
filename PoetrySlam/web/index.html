@@ -33,8 +33,20 @@
             <button id="new-game" class="ghost">New game</button>
           </div>
           <div class="room-panel">
-            <p class="label">Rooms</p>
+            <button id="toggle-rooms" class="room-toggle">
+              <span>Rooms</span>
+              <span class="chevron">▾</span>
+            </button>
             <p class="room-current">Current room: <span id="current-room">—</span></p>
+            <div class="room-name">
+              <input
+                id="player-name"
+                type="text"
+                maxlength="15"
+                placeholder="Your name (max 15)"
+              />
+            </div>
+            <p id="room-action-error" class="room-action-error"></p>
             <div class="room-actions">
               <button id="create-room" class="ghost">Create room</button>
               <div class="room-join">
@@ -45,6 +57,15 @@
             <div id="rooms-list" class="rooms-list"></div>
           </div>
           <button id="evaluate-rhymes" class="ghost">Evaluate Rhyme Attempts</button>
+          <div class="test-panel">
+            <p class="label">Test</p>
+            <div class="test-fields">
+              <input id="test-word-1" type="text" placeholder="Word one" />
+              <input id="test-word-2" type="text" placeholder="Word two" />
+            </div>
+            <button id="test-rhyme" class="ghost">Test</button>
+            <div id="test-result" class="test-result"></div>
+          </div>
           <div class="rhyme-board">
             <div class="rhyme-definition">
               <p class="label">Perfect rhyme</p>

@@ -47,6 +47,7 @@ class GameState:
     out_players: Set[str] = field(default_factory=set)
     used_words: Set[str] = field(default_factory=set)
     used_keys: Set[str] = field(default_factory=set)
+    live_inputs: Dict[str, str] = field(default_factory=dict)
     round_turns: int = 0
     round_id: int = 0
     round_rhyme_count: int = 0
@@ -110,6 +111,7 @@ class GameEngine:
             out_players=set(),
             used_words=set(),
             used_keys=set(),
+            live_inputs={},
             round_turns=0,
             round_id=0,
             round_rhyme_count=0,
@@ -137,7 +139,7 @@ class GameEngine:
     def player_count(self) -> int:
         return len(self.state.players)
 
-    def add_player(self, kind: str) -> str:
+    def add_player(self, kind: str, name: str | None = None) -> str:
         state = self.state
         if len(state.turn_order) >= self.max_players:
             raise ValueError("Room is full")
@@ -149,7 +151,7 @@ class GameEngine:
         else:
             human_index = 1 + len([p for p in state.players.values() if p.kind == "human"])
             player_id = f"p{human_index}"
-            label = f"PLAYER {human_index}"
+            label = self._normalize_name(name) or f"PLAYER {human_index}"
             avatar_class = "player"
         state.players[player_id] = PlayerInfo(
             player_id=player_id,
@@ -161,6 +163,13 @@ class GameEngine:
         if not state.turn:
             self._start_turn(state, player_id)
         return player_id
+
+    def set_player_name(self, player_id: str, name: str | None) -> None:
+        normalized = self._normalize_name(name)
+        if not normalized:
+            return
+        if player_id in self.state.players:
+            self.state.players[player_id].label = normalized
 
     def _add_existing_player(self, player_id: str, kind: str, label: str, avatar_class: str) -> None:
         state = self.state
@@ -193,6 +202,7 @@ class GameEngine:
             "game_id": state.game_id,
             "rhyme_part_display": game.rhyming_part_display(state.prompt),
             "self_id": self_id,
+            "live_input": state.live_inputs.get(state.turn, ""),
         }
         payload["players"] = [
             {
@@ -285,6 +295,7 @@ class GameEngine:
             return
 
         if res.status == game.GuessStatus.CORRECT:
+            state.live_inputs[actor] = ""
             bonus = game.syllable_match_bonus(state.prompt, guess)
             if slant_bonus_enabled and any_slant_enabled and not game.words_rhyme(state.prompt, guess):
                 bonus += 1
@@ -315,6 +326,14 @@ class GameEngine:
         else:
             message = "Try again"
         self._set_event(state, actor, [message], "bad")
+        if res.status in (
+            game.GuessStatus.NOT_A_RHYME,
+            game.GuessStatus.VALID_ENGLISH_MISSING_CMU,
+            game.GuessStatus.NOT_RECOGNIZED_ENGLISH,
+            game.GuessStatus.NOT_PLAUSIBLE_TOKEN,
+            game.GuessStatus.SAME_AS_PROMPT,
+        ):
+            state.live_inputs[actor] = ""
 
     def handle_bot_commit(self) -> None:
         state = self.state
@@ -322,6 +341,7 @@ class GameEngine:
             return
 
         if state.pending_bot_correct:
+            state.live_inputs[state.pending_bot_actor] = ""
             bonus = game.syllable_match_bonus(state.prompt, state.pending_bot_word)
             state.used_words.add(state.pending_bot_word.lower())
             state.used_keys.add(self._word_key(state.pending_bot_word))
@@ -340,6 +360,8 @@ class GameEngine:
             return
 
         self._set_event(state, state.pending_bot_actor or "bot1", ["Not a rhyme"], "bad")
+        if state.pending_bot_actor:
+            state.live_inputs[state.pending_bot_actor] = ""
         state.pending_bot_word = ""
         state.pending_bot_correct = False
         state.pending_bot_actor = ""
@@ -357,6 +379,8 @@ class GameEngine:
             state.pending_bot_word = ""
             state.pending_bot_correct = False
             state.pending_bot_actor = ""
+            if state.turn:
+                state.live_inputs[state.turn] = ""
             self._mark_out(state, state.turn)
             self._handle_after_out(state)
             return
@@ -399,6 +423,8 @@ class GameEngine:
         state.turn = turn
         state.deadline_mono = now + TURN_SECONDS
         state.bot_action_mono = None
+        if turn:
+            state.live_inputs[turn] = ""
         if self._is_bot(turn):
             delay = random.uniform(BOT_ACTION_MIN, BOT_ACTION_MAX)
             state.bot_action_mono = min(state.deadline_mono - 0.2, now + delay)
@@ -425,6 +451,7 @@ class GameEngine:
         state.pending_bot_correct = False
         state.pending_bot_actor = ""
         state.last_bot_actor = ""
+        state.live_inputs = {}
         state.round_id += 1
         state.round_rhyme_count = len(game.accepted_words(state.prompt))
         state.last_word_actor = "system"
@@ -483,6 +510,17 @@ class GameEngine:
         except (TypeError, ValueError):
             count = 1
         return max(0, min(self.max_players, count))
+
+    def _normalize_name(self, value: str | None) -> str:
+        if not value:
+            return ""
+        return value.strip()[:15]
+
+    def update_live_input(self, actor: str, text: str) -> None:
+        if not actor or actor not in self.state.players:
+            return
+        clean = (text or "")
+        self.state.live_inputs[actor] = clean[:40]
 
     def _track_rhyme_attempt(self, prompt: str, guess: str) -> None:
         p = (prompt or "").strip().lower()

@@ -92,6 +92,84 @@ body {
   background: rgba(255, 255, 255, 0.25);
 }
 
+.room-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #4b463c;
+  cursor: pointer;
+}
+
+.room-panel .chevron {
+  transition: transform 0.2s ease;
+}
+
+.room-panel.is-collapsed .chevron {
+  transform: rotate(-90deg);
+}
+
+.room-panel.is-collapsed .room-current,
+.room-panel.is-collapsed .room-actions,
+.room-panel.is-collapsed .rooms-list {
+  display: none;
+}
+
+.test-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.test-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.test-fields input {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.test-result {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #4b463c;
+}
+
+.test-result .line {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.test-result.good .line {
+  border-color: rgba(27, 92, 76, 0.4);
+  color: #1f5c4c;
+}
+
+.test-result.bad .line {
+  border-color: rgba(156, 58, 31, 0.5);
+  color: #8f2f1b;
+}
+
+.test-result .missing {
+  color: #8f2f1b;
+  font-style: italic;
+}
 .room-current {
   margin: 0;
   font-size: 0.9rem;
@@ -105,6 +183,21 @@ body {
 .room-actions {
   display: grid;
   gap: 10px;
+}
+
+.room-action-error {
+  margin: 0;
+  min-height: 18px;
+  font-size: 0.8rem;
+  color: #8f2f1b;
+}
+
+.room-name input {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .room-join {

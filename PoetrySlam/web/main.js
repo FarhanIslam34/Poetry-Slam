@@ -10,6 +10,8 @@ import {
   listRooms,
   createRoom,
   joinRoom,
+  testRhyme,
+  sendLiveInput,
 } from "./api.js";
 import { createRenderer } from "./render.js";
 
@@ -24,6 +26,14 @@ const roomsListEl = document.getElementById("rooms-list");
 const createRoomBtn = document.getElementById("create-room");
 const joinRoomBtn = document.getElementById("join-room");
 const joinRoomInput = document.getElementById("join-room-id");
+const playerNameEl = document.getElementById("player-name");
+const roomErrorEl = document.getElementById("room-action-error");
+const roomPanelEl = document.querySelector(".room-panel");
+const toggleRoomsBtn = document.getElementById("toggle-rooms");
+const testWordOneEl = document.getElementById("test-word-1");
+const testWordTwoEl = document.getElementById("test-word-2");
+const testRhymeBtn = document.getElementById("test-rhyme");
+const testResultEl = document.getElementById("test-result");
 const rhymeModal = document.getElementById("rhyme-modal");
 const rhymeCloseBtn = document.getElementById("close-rhyme-modal");
 const rhymeListEl = document.getElementById("rhyme-attempts");
@@ -101,24 +111,70 @@ const elements = {
 };
 
 let roomId = localStorage.getItem("room_id") || "";
-let playerId = localStorage.getItem("player_id") || "";
+let playerId = sessionStorage.getItem("player_id") || "";
+let playerName = sessionStorage.getItem("player_name") || "";
 const makeClientId = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
   return `cid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
-const clientId = localStorage.getItem("client_id") || makeClientId();
-localStorage.setItem("client_id", clientId);
+const clientId = sessionStorage.getItem("client_id") || makeClientId();
+sessionStorage.setItem("client_id", clientId);
+const roomsCollapsed = localStorage.getItem("rooms_collapsed") === "true";
 
 function setRoom(id, pid) {
   roomId = id || "";
   playerId = pid || "";
   localStorage.setItem("room_id", roomId);
-  localStorage.setItem("player_id", playerId);
+  sessionStorage.setItem("player_id", playerId);
   if (currentRoomEl) {
     currentRoomEl.textContent = roomId || "—";
   }
+}
+
+function syncPlayerName(value) {
+  playerName = (value || "").trim().slice(0, 15);
+  sessionStorage.setItem("player_name", playerName);
+  if (playerNameEl && playerNameEl.value !== playerName) {
+    playerNameEl.value = playerName;
+  }
+  setRoomStatus("");
+}
+
+function setRoomStatus(message) {
+  if (!roomErrorEl) {
+    return;
+  }
+  roomErrorEl.textContent = message || "";
+}
+
+if (playerNameEl) {
+  if (playerName) {
+    playerNameEl.value = playerName;
+  }
+  playerNameEl.addEventListener("input", (event) => {
+    syncPlayerName(event.target.value);
+  });
+}
+
+function requireName() {
+  const name = (playerNameEl?.value || playerName || "").trim().slice(0, 15);
+  if (!name) {
+    setRoomStatus("Enter a name before joining or creating a room.");
+    playerNameEl?.focus();
+    return null;
+  }
+  syncPlayerName(name);
+  return name;
+}
+
+function setRoomsCollapsed(collapsed) {
+  if (!roomPanelEl) {
+    return;
+  }
+  roomPanelEl.classList.toggle("is-collapsed", collapsed);
+  localStorage.setItem("rooms_collapsed", collapsed ? "true" : "false");
 }
 
 const renderer = createRenderer({
@@ -126,6 +182,41 @@ const renderer = createRenderer({
   onBotCommit: () => commitBot({ roomId }),
   onAutoSubmit: () => submitGuessAction(),
 });
+
+let latestState = null;
+let inputSendTimer = null;
+let lastInputSent = "";
+let lastInputContext = "";
+
+function applyState(state) {
+  const nextContext = `${state?.room_id || roomId}:${state?.self_id || playerId}:${state?.turn || ""}:${state?.round_id || 0}`;
+  if (nextContext !== lastInputContext) {
+    lastInputContext = nextContext;
+    lastInputSent = "";
+  }
+  latestState = state;
+  renderer.renderState(state);
+}
+
+function queueLiveInputSend(text) {
+  if (!roomId || !clientId || !latestState?.self_id) {
+    return;
+  }
+  if (latestState.turn !== latestState.self_id || latestState.paused) {
+    return;
+  }
+  const payload = text;
+  if (payload === lastInputSent) {
+    return;
+  }
+  if (inputSendTimer) {
+    clearTimeout(inputSendTimer);
+  }
+  inputSendTimer = setTimeout(() => {
+    lastInputSent = payload;
+    sendLiveInput({ roomId, clientId, text: payload }).catch(console.error);
+  }, 60);
+}
 
 function updateToggleGroup(group) {
   const { parent, children } = group;
@@ -202,7 +293,7 @@ async function submitGuessAction() {
     nearVowelShortFrontBucket: !!nearVowelShortFrontBucketEl?.checked,
     slantBonus: !!slantBonusEl?.checked,
   });
-  renderer.renderState(state);
+  applyState(state);
   guessEl.value = "";
   renderer.updateInputState();
   if (state.self_id && state.turn === state.self_id) {
@@ -213,7 +304,7 @@ async function submitGuessAction() {
 async function startGame() {
   const botCount = botCountEl ? Number.parseInt(botCountEl.value, 10) : undefined;
   const state = await startNewGame({ botCount, roomId, clientId });
-  renderer.renderState(state);
+  applyState(state);
   guessEl.value = "";
   guessEl.focus();
 }
@@ -224,7 +315,7 @@ newGameBtn.addEventListener("click", () => {
 
 pauseBtn.addEventListener("click", () => {
   togglePause({ roomId, clientId })
-    .then(renderer.renderState)
+    .then(applyState)
     .catch(console.error);
 });
 
@@ -313,7 +404,7 @@ if (botCountEl) {
   botCountEl.addEventListener("change", () => {
     const value = Number.parseInt(botCountEl.value, 10);
     updateConfig({ botCount: value, roomId, clientId })
-      .then(renderer.renderState)
+      .then(applyState)
       .catch(console.error);
   });
 }
@@ -326,11 +417,29 @@ guessEl.addEventListener("keydown", (event) => {
 
 guessEl.addEventListener("input", () => {
   renderer.updateInputState();
+  queueLiveInputSend(guessEl.value);
 });
 
 if (roomId) {
-  fetchState({ difficulty: difficultyEl.value, roomId, clientId })
-    .then(renderer.renderState)
+  const joinNeeded = !playerId;
+  const initial = joinNeeded
+    ? (() => {
+        const name = requireName();
+        if (!name) {
+          return Promise.resolve(null);
+        }
+        return joinRoom({ roomId, clientId, name }).then((payload) => {
+          setRoom(payload.room_id, payload.player_id);
+          return payload.state;
+        });
+      })()
+    : fetchState({ difficulty: difficultyEl.value, roomId, clientId });
+  initial
+    .then((state) => {
+      if (state) {
+        applyState(state);
+      }
+    })
     .catch(() => {
       startGame().catch(console.error);
     });
@@ -341,7 +450,7 @@ function pollState() {
     return;
   }
   fetchState({ difficulty: difficultyEl.value, roomId, clientId })
-    .then(renderer.renderState)
+    .then(applyState)
     .catch(console.error);
 }
 
@@ -361,12 +470,20 @@ function renderRooms(rooms) {
     join.className = "ghost";
     join.textContent = "Join";
     join.addEventListener("click", () => {
-      joinRoom({ roomId: room.room_id, clientId })
+      const name = requireName();
+      if (!name) {
+        return;
+      }
+      setRoomStatus("Joining room...");
+      joinRoom({ roomId: room.room_id, clientId, name })
         .then((payload) => {
           setRoom(payload.room_id, payload.player_id);
-          renderer.renderState(payload.state);
+          applyState(payload.state);
+          setRoomStatus("");
         })
-        .catch(console.error);
+        .catch((err) => {
+          setRoomStatus(err.message || "Failed to join room.");
+        });
     });
     row.append(label, join);
     roomsListEl.appendChild(row);
@@ -381,14 +498,22 @@ function refreshRooms() {
 
 if (createRoomBtn) {
   createRoomBtn.addEventListener("click", () => {
+    const name = requireName();
+    if (!name) {
+      return;
+    }
+    setRoomStatus("Creating room...");
     const botCount = botCountEl ? Number.parseInt(botCountEl.value, 10) : 1;
-    createRoom({ botCount, clientId })
+    createRoom({ botCount, clientId, name })
       .then((payload) => {
         setRoom(payload.room_id, payload.player_id);
-        renderer.renderState(payload.state);
+        applyState(payload.state);
         refreshRooms();
+        setRoomStatus("");
       })
-      .catch(console.error);
+      .catch((err) => {
+        setRoomStatus(err.message || "Failed to create room.");
+      });
   });
 }
 
@@ -398,25 +523,89 @@ if (joinRoomBtn) {
     if (!value) {
       return;
     }
-    joinRoom({ roomId: value, clientId })
+    const name = requireName();
+    if (!name) {
+      return;
+    }
+    setRoomStatus("Joining room...");
+    joinRoom({ roomId: value, clientId, name })
       .then((payload) => {
         setRoom(payload.room_id, payload.player_id);
-        renderer.renderState(payload.state);
+        applyState(payload.state);
         refreshRooms();
+        setRoomStatus("");
       })
-      .catch(console.error);
+      .catch((err) => {
+        setRoomStatus(err.message || "Failed to join room.");
+      });
   });
 }
 
 setRoom(roomId, playerId);
 refreshRooms();
+setRoomsCollapsed(roomsCollapsed);
+if (toggleRoomsBtn) {
+  toggleRoomsBtn.addEventListener("click", () => {
+    const next = !roomPanelEl?.classList.contains("is-collapsed");
+    setRoomsCollapsed(next);
+  });
+}
 if (!roomId && createRoomBtn) {
-  const botCount = botCountEl ? Number.parseInt(botCountEl.value, 10) : 1;
-  createRoom({ botCount, clientId })
+  const name = (playerNameEl?.value || playerName || "").trim().slice(0, 15);
+  if (name) {
+    syncPlayerName(name);
+    setRoomStatus("Creating room...");
+    const botCount = botCountEl ? Number.parseInt(botCountEl.value, 10) : 1;
+  createRoom({ botCount, clientId, name })
     .then((payload) => {
       setRoom(payload.room_id, payload.player_id);
-      renderer.renderState(payload.state);
+      applyState(payload.state);
       refreshRooms();
+      setRoomStatus("");
     })
-    .catch(console.error);
+    .catch((err) => {
+      setRoomStatus(err.message || "Failed to create room.");
+    });
+}
+}
+
+function renderTestResult(result) {
+  if (!testResultEl) {
+    return;
+  }
+  testResultEl.classList.remove("good", "bad");
+  testResultEl.replaceChildren();
+  const found1 = result?.found1;
+  const found2 = result?.found2;
+  const line1 = document.createElement("div");
+  line1.className = "line";
+  if (!found1) {
+    line1.innerHTML = `<strong>${result.word1 || ""}</strong> · <span class=\"missing\">could not be found</span>`;
+  } else {
+    line1.innerHTML = `<strong>${result.word1}</strong> · ${result.display1}`;
+  }
+  const line2 = document.createElement("div");
+  line2.className = "line";
+  if (!found2) {
+    line2.innerHTML = `<strong>${result.word2 || ""}</strong> · <span class=\"missing\">could not be found</span>`;
+  } else {
+    line2.innerHTML = `<strong>${result.word2}</strong> · ${result.display2}`;
+  }
+  if (found1 && found2) {
+    testResultEl.classList.add(result.rhymes ? "good" : "bad");
+  }
+  testResultEl.append(line1, line2);
+}
+
+if (testRhymeBtn) {
+  testRhymeBtn.addEventListener("click", () => {
+    const w1 = (testWordOneEl?.value || "").trim();
+    const w2 = (testWordTwoEl?.value || "").trim();
+    if (!w1 || !w2) {
+      return;
+    }
+    testRhyme({ w1, w2 })
+      .then(renderTestResult)
+      .catch(console.error);
+  });
 }

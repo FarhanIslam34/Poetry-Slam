@@ -4,7 +4,19 @@ export async function fetchJSON(url, options = {}) {
     ...options,
   });
   if (!resp.ok) {
-    throw new Error(`Request failed: ${resp.status}`);
+    let detail = "";
+    try {
+      const payload = await resp.json();
+      detail = payload?.error ? ` ${payload.error}` : "";
+    } catch (err) {
+      try {
+        const text = await resp.text();
+        detail = text ? ` ${text}` : "";
+      } catch {
+        detail = "";
+      }
+    }
+    throw new Error(`Request failed: ${resp.status}.${detail}`);
   }
   return resp.json();
 }
@@ -97,16 +109,29 @@ export function listRooms() {
   return fetchJSON("/api/rooms");
 }
 
-export function createRoom({ botCount, clientId }) {
+export function createRoom({ botCount, clientId, name }) {
   return fetchJSON("/api/rooms/create", {
     method: "POST",
-    body: JSON.stringify({ bot_count: botCount, client_id: clientId }),
+    body: JSON.stringify({ bot_count: botCount, client_id: clientId, name }),
   });
 }
 
-export function joinRoom({ roomId, clientId }) {
+export function joinRoom({ roomId, clientId, name }) {
   return fetchJSON("/api/rooms/join", {
     method: "POST",
-    body: JSON.stringify({ room_id: roomId, client_id: clientId }),
+    body: JSON.stringify({ room_id: roomId, client_id: clientId, name }),
+  });
+}
+
+export function testRhyme({ w1, w2 }) {
+  const p1 = encodeURIComponent(w1 || "");
+  const p2 = encodeURIComponent(w2 || "");
+  return fetchJSON(`/api/test_rhyme?w1=${p1}&w2=${p2}`);
+}
+
+export function sendLiveInput({ roomId, clientId, text }) {
+  return fetchJSON("/api/input", {
+    method: "POST",
+    body: JSON.stringify({ room_id: roomId, client_id: clientId, text }),
   });
 }

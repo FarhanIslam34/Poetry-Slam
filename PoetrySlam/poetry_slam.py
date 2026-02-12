@@ -88,6 +88,21 @@ def rhyming_part_display(word: str) -> str:
     return " ".join(tokens)
 
 
+def pronunciation_display(word: str) -> str:
+    prons = get_prons(word)
+    if prons:
+        phones = prons[0].split()
+        tokens = []
+        for phone in phones:
+            base = _VOWEL_RE.sub("", phone)
+            if phone.endswith("1") or phone.endswith("2"):
+                tokens.append(f"<strong>{base}</strong>")
+            else:
+                tokens.append(base)
+        return " ".join(tokens)
+    return rhyming_part_display(word)
+
+
 def _load_custom_rhymes() -> dict:
     if not _CUSTOM_RHYME_PATH.exists():
         return {"version": 1, "words": {}}

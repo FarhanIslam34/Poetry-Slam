@@ -61,7 +61,6 @@ export function createRenderer({ elements, onBotCommit, onAutoSubmit }) {
       "player-four",
       "player-five",
     ];
-    let botIndex = 0;
     players.forEach((player, idx) => {
       const card = document.createElement("div");
       const cardClass = cardClasses[idx] || "player-one";
@@ -75,12 +74,7 @@ export function createRenderer({ elements, onBotCommit, onAutoSubmit }) {
 
       const avatar = document.createElement("div");
       avatar.className = `avatar ${player.avatar_class || player.id}`;
-      avatar.textContent = player.is_self
-        ? "YOU"
-        : player.label || (player.id === "player" ? "YOU" : `BOT ${botIndex + 1}`);
-      if (player.id !== "player") {
-        botIndex += 1;
-      }
+      avatar.textContent = player.label || player.id;
       card.appendChild(avatar);
 
       const outBadge = document.createElement("div");
@@ -338,7 +332,7 @@ export function createRenderer({ elements, onBotCommit, onAutoSubmit }) {
 
     const botWord = state.bot_word || "";
     const botActor = state.bot_actor || "";
-    const shouldAnimateBot = state.turn !== state.self_id && state.bot_pending;
+    const shouldAnimateBot = state.bot_pending && state.turn && state.turn !== state.self_id;
     if (shouldAnimateBot && (botWord !== lastBotWord || botActor !== lastBotActor)) {
       lastBotWord = botWord;
       lastBotActor = botActor;
@@ -407,12 +401,19 @@ export function createRenderer({ elements, onBotCommit, onAutoSubmit }) {
       guessEl.classList.add(selfClass);
       setInputColor(selfClass);
       updateInputState();
-    } else if (!botWord) {
+    } else {
       guessEl.classList.remove("player", ...activeActorClasses);
       const turnClass = playerColorById[state.turn] || state.turn;
       if (turnClass) {
         guessEl.classList.add(turnClass);
         setInputColor(turnClass);
+      }
+      if (!state.bot_pending) {
+        const live = (state.live_input || "").toUpperCase();
+        if (guessEl.value !== live) {
+          guessEl.value = live;
+          updateInputState();
+        }
       }
       updateInputState();
     }
