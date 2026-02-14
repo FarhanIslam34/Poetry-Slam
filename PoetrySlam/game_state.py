@@ -389,7 +389,7 @@ class GameEngine:
             available = [
                 w
                 for w in game.accepted_words(state.prompt)
-                if self._word_key(w) not in state.used_keys
+                if self._word_key(w) not in state.used_keys and not game.is_probable_proper_noun(w)
             ]
             if not available:
                 state.pending_bot_word = ""

@@ -15,16 +15,16 @@ from wordfreq import zipf_frequency
 
 from prompt_dictionary import load_or_create_prompts
 
-
 # ----------------------------
 # Normalization / token checks
 # ----------------------------
 
-_WORD_RE = re.compile(r"^[A-Za-z]+(?:[\'-][A-Za-z]+)*$")
+_WORD_RE = re.compile(r"^[A-Za-z]+(?:-[A-Za-z]+)*$")
 _VOWEL_RE = re.compile(r"[0-2]$")
 
 _DATA_DIR = Path(__file__).parent / "data"
 _CUSTOM_RHYME_PATH = _DATA_DIR / "custom_rhymes.json"
+_DICT_PATH = Path(__file__).resolve().parents[1] / "dict.txt"
 
 
 def normalize(word: str) -> str:
@@ -44,6 +44,9 @@ def is_recognized_english_word(word: str) -> bool:
     w = normalize(word)
     if not is_plausible_word_token(w):
         return False
+    dictionary = _load_dictionary_words()
+    if dictionary and w not in dictionary:
+        return False
 
     if "-" in w:
         parts = [p for p in w.split("-") if p]
@@ -55,6 +58,13 @@ def is_recognized_english_word(word: str) -> bool:
         return True
 
     return False
+
+
+def is_probable_proper_noun(word: str) -> bool:
+    w = normalize(word)
+    if not w:
+        return False
+    return zipf_frequency(w, "en") == 0.0 and zipf_frequency(w.title(), "en") > 0.0
 
 
 # ----------------------------
@@ -115,6 +125,18 @@ def _load_custom_rhymes() -> dict:
     if "words" not in payload or not isinstance(payload.get("words"), dict):
         return {"version": 1, "words": {}}
     return payload
+
+
+@functools.lru_cache(maxsize=1)
+def _load_dictionary_words() -> set[str]:
+    if not _DICT_PATH.exists():
+        return set()
+    words: set[str] = set()
+    for line in _DICT_PATH.read_text(encoding="utf-8", errors="ignore").splitlines():
+        w = line.strip().lower()
+        if w:
+            words.add(w)
+    return words
 
 
 def _save_custom_rhymes(payload: dict) -> None:
@@ -508,6 +530,13 @@ def judge_guess(prompt: str, guess: str, *, settings: RhymeSettings | None = Non
             show_accepteds=True,
         )
 
+    if is_probable_proper_noun(raw):
+        return GuessResult(
+            GuessStatus.NOT_PLAUSIBLE_TOKEN,
+            "Proper nouns are not allowed.",
+            show_accepteds=False,
+        )
+
     if not get_prons(raw):
         if is_recognized_english_word(raw):
             if words_rhyme(p, raw):
@@ -527,6 +556,13 @@ def judge_guess(prompt: str, guess: str, *, settings: RhymeSettings | None = Non
             f'"{raw}" is not recognized as a valid English word.',
             show_accepteds=True,
         )
+    if _load_dictionary_words():
+        if normalize(raw) not in _load_dictionary_words():
+            return GuessResult(
+                GuessStatus.NOT_RECOGNIZED_ENGLISH,
+                f'"{raw}" is not recognized as a valid English word.',
+                show_accepteds=True,
+            )
 
     if g == p:
         return GuessResult(
